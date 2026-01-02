@@ -1,0 +1,17 @@
+{
+  "name": "u3ware-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for selling digital access keys with Cardlink payments",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "import-keys": "node scripts/import-keys.js",
+    "generate-keys": "node scripts/generate-keys.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.6.7",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}

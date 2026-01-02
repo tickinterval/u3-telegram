@@ -1,0 +1,77 @@
+{
+  "telegram_bot_token": "PUT_TELEGRAM_BOT_TOKEN_HERE",
+  "cardlink": {
+    "api_token": "123|PUT_CARDLINK_API_TOKEN_HERE",
+    "shop_id": "PUT_CARDLINK_SHOP_ID_HERE",
+    "currency_in": "USD",
+    "payer_pays_commission": 1
+  },
+  "cryptocloud": {
+    "api_key": "PUT_CRYPTOCLOUD_API_KEY_HERE",
+    "shop_id": "PUT_CRYPTOCLOUD_SHOP_ID_HERE",
+    "secret_key": "PUT_CRYPTOCLOUD_SECRET_KEY_HERE",
+    "currency": "USD",
+    "locale": "en"
+  },
+  "payment_currency": "USD",
+  "server": {
+    "port": 3000,
+    "base_url": "https://your-domain.com"
+  },
+  "support_links": {
+    "support": "https://t.me/your_support",
+    "chat": "https://t.me/your_chat"
+  },
+  "admin_telegram_ids": [
+    123456789
+  ],
+  "language_default": "ru",
+  "terms": {
+    "text": "Нажимая кнопку согласия, вы подтверждаете, что ознакомились с условиями использования сервиса.",
+    "policy": "Вы соглашаетесь с политикой конфиденциальности и обработкой персональных данных."
+  },
+  "products": [
+    {
+      "code": "blitz",
+      "title": "Blitz",
+      "durations": [
+        {
+          "days": 7,
+          "prices": {
+            "UAH": 159,
+            "USD": 4,
+            "CNY": 27,
+            "RUB": 299
+          }
+        },
+        {
+          "days": 14,
+          "prices": {
+            "UAH": 289,
+            "USD": 7,
+            "CNY": 49,
+            "RUB": 549
+          }
+        },
+        {
+          "days": 30,
+          "prices": {
+            "UAH": 519,
+            "USD": 13,
+            "CNY": 88,
+            "RUB": 999
+          }
+        },
+        {
+          "days": 90,
+          "prices": {
+            "UAH": 1549,
+            "USD": 37,
+            "CNY": 256,
+            "RUB": 2899
+          }
+        }
+      ]
+    }
+  ]
+}
