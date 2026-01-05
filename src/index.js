@@ -764,19 +764,14 @@ async function sendPaymentMethods(chatId, userId, lang, product, duration) {
   const methodRow = [];
   if (hasCardlink) {
     methodRow.push({
-      text: 'Cardlink',
+      text: '🇷🇺 (cc + сбп))',
       callback_data: `pay:cardlink:${product.code}:${duration.days}`,
     });
   }
-  if (hasCryptocloud) {
-    methodRow.push({
-      text: 'CryptoCloud',
-      callback_data: `pay:cryptocloud:${product.code}:${duration.days}`,
-    });
-  }
+  // CryptoCloud disabled for now.
   if (hasWallet) {
     methodRow.push({
-      text: 'Wallet',
+      text: '₿ Crypto',
       callback_data: `pay:wallet:${product.code}:${duration.days}`,
     });
   }
