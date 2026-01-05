@@ -8,6 +8,9 @@ const KEYS_PATH = path.join(DATA_DIR, 'keys.json');
 const DEFAULT_STORE = {
   users: {},
   orders: {},
+  meta: {
+    order_seq: 0,
+  },
 };
 
 const DEFAULT_KEYS = {
