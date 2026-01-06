@@ -134,6 +134,12 @@ const TEXT = {
     order_key_button: 'Получить ключ',
     order_key_missing: 'Ключ для этого заказа недоступен.',
     order_key_title: 'Ваш ключ:',
+    keys_invoices_title: 'Последние счета:',
+    keys_keys_title: 'Купленные ключи',
+    keys_keys_empty: 'Купленных ключей пока нет.',
+    keys_page_label: 'Страница',
+    keys_prev_button: '‹ Назад',
+    keys_next_button: 'Вперёд ›',
     keys_more: '... ещё {count}',
     price_label: 'цена',
     product_blitz_subtitle: 'dlc for pc',
@@ -194,6 +200,12 @@ const TEXT = {
     order_key_button: 'Get key',
     order_key_missing: 'Key is not available for this order.',
     order_key_title: 'Your access key:',
+    keys_invoices_title: 'Latest invoices:',
+    keys_keys_title: 'Purchased keys',
+    keys_keys_empty: 'No purchased keys yet.',
+    keys_page_label: 'Page',
+    keys_prev_button: '‹ Prev',
+    keys_next_button: 'Next ›',
     keys_more: '... {count} more',
     price_label: 'price',
     product_blitz_subtitle: 'dlc for pc',
@@ -254,6 +266,12 @@ const TEXT = {
     order_key_button: 'Отримати ключ',
     order_key_missing: 'Ключ для цього замовлення недоступний.',
     order_key_title: 'Ваш ключ:',
+    keys_invoices_title: 'Останні рахунки:',
+    keys_keys_title: 'Куплені ключі',
+    keys_keys_empty: 'Куплених ключів поки немає.',
+    keys_page_label: 'Сторінка',
+    keys_prev_button: '‹ Назад',
+    keys_next_button: 'Далі ›',
     keys_more: '... ще {count}',
     price_label: 'ціна',
     product_blitz_subtitle: 'dlc for pc',
@@ -314,6 +332,12 @@ const TEXT = {
     order_key_button: '获取钥匙',
     order_key_missing: '该订单暂无钥匙。',
     order_key_title: '您的钥匙:',
+    keys_invoices_title: '最近的账单:',
+    keys_keys_title: '已购买钥匙',
+    keys_keys_empty: '暂无已购买钥匙。',
+    keys_page_label: '页',
+    keys_prev_button: '‹ 上一页',
+    keys_next_button: '下一页 ›',
     keys_more: '... 还有 {count}',
     price_label: '价格',
     product_blitz_subtitle: 'PC 版 DLC。',
@@ -666,7 +690,7 @@ async function sendProfile(chatId, user) {
   return sendOrEditMessage(chatId, user.id, text, { reply_markup: keyboard });
 }
 
-async function sendKeysList(chatId, userId, lang) {
+async function sendKeysList(chatId, userId, lang, page = 1) {
   const store = await readStore();
   const orders = Object.values(store.orders || {})
     .filter((order) => String(order.user_id) === String(userId))
@@ -680,28 +704,48 @@ async function sendKeysList(chatId, userId, lang) {
     });
   }
 
-  const maxItems = 10;
-  const shown = orders.slice(0, maxItems);
-  const lines = [t(lang, 'keys_title'), ''];
-  for (const order of shown) {
+  const invoices = orders.slice(0, 5);
+  const paidOrders = orders.filter((order) => order.key);
+  const pageSize = 5;
+  const totalPages = Math.max(1, Math.ceil(paidOrders.length / pageSize));
+  const currentPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const shownKeys = paidOrders.slice(startIndex, startIndex + pageSize);
+
+  const lines = [t(lang, 'keys_title'), '', t(lang, 'keys_invoices_title')];
+  for (const order of invoices) {
     lines.push(
       `${t(lang, 'order_id_label')}: ${order.id} | ${t(lang, 'order_status_label')}: ${formatOrderStatus(lang, order.status)}`,
     );
   }
-  if (orders.length > maxItems) {
-    lines.push(t(lang, 'keys_more', { count: orders.length - maxItems }));
+  lines.push('', t(lang, 'keys_keys_title'));
+  if (!paidOrders.length) {
+    lines.push(t(lang, 'keys_keys_empty'));
+  } else {
+    lines.push(`${t(lang, 'keys_page_label')}: ${currentPage}/${totalPages}`);
   }
 
   const rows = [];
-  for (const order of shown) {
-    if (!order.key) {
-      continue;
-    }
+  for (const order of shownKeys) {
     rows.push([{
       text: `${t(lang, 'order_key_button')} #${order.id}`,
       callback_data: `order_key:${order.id}`,
     }]);
   }
+
+  if (totalPages > 1) {
+    const navRow = [];
+    if (currentPage > 1) {
+      navRow.push({ text: t(lang, 'keys_prev_button'), callback_data: `keys_page:${currentPage - 1}` });
+    }
+    if (currentPage < totalPages) {
+      navRow.push({ text: t(lang, 'keys_next_button'), callback_data: `keys_page:${currentPage + 1}` });
+    }
+    if (navRow.length) {
+      rows.push(navRow);
+    }
+  }
+
   rows.push([{ text: t(lang, 'back_button'), callback_data: 'menu_profile' }]);
 
   return sendOrEditMessage(chatId, userId, lines.join('\n'), {
@@ -1507,16 +1551,29 @@ async function pollWalletPayments() {
           await updateOrder(order.id, { status: 'EXPIRED' });
           const user = await getUser(order.user_id);
           const lang = (user && user.language) || config.language_default;
+          const backData = order.product_code && order.days
+            ? `pay:wallet:${order.product_code}:${order.days}`
+            : 'menu_main';
+          const expiredOptions = {
+            reply_markup: {
+              inline_keyboard: [[{ text: t(lang, 'back_button'), callback_data: backData }]],
+            },
+          };
           if (payment.message_id) {
             await sendOrEditMessage(
               order.user_id,
               order.user_id,
               t(lang, 'wallet_invoice_expired'),
-              {},
+              expiredOptions,
               payment.message_id,
             );
           } else {
-            await sendMessageOnly(order.user_id, order.user_id, t(lang, 'wallet_invoice_expired'));
+            await sendMessageOnly(
+              order.user_id,
+              order.user_id,
+              t(lang, 'wallet_invoice_expired'),
+              expiredOptions,
+            );
           }
           continue;
         }
@@ -1671,7 +1728,13 @@ bot.on('callback_query', async (query) => {
 
 
   if (data === 'menu_keys') {
-    await sendKeysList(chatId, user.id, lang);
+    await sendKeysList(chatId, user.id, lang, 1);
+    return;
+  }
+
+  if (data.startsWith('keys_page:')) {
+    const page = Number(data.split(':')[1]) || 1;
+    await sendKeysList(chatId, user.id, lang, page);
     return;
   }
 
