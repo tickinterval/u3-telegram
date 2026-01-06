@@ -15,6 +15,7 @@
   },
   "crypto_wallet": {
     "enabled": true,
+    "debug": false,
     "invoice_ttl_minutes": 45,
     "poll_interval_sec": 20,
     "unique_amount_max": 999,

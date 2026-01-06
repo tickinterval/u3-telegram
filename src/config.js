@@ -64,6 +64,7 @@ function loadConfig() {
   config.crypto_wallet.unique_amount_max = Number(config.crypto_wallet.unique_amount_max || 999);
   config.crypto_wallet.price_cache_sec = Number(config.crypto_wallet.price_cache_sec || 60);
   config.crypto_wallet.fiat_rate_cache_sec = Number(config.crypto_wallet.fiat_rate_cache_sec || 300);
+  config.crypto_wallet.debug = Boolean(config.crypto_wallet.debug);
   config.language_default = config.language_default || 'ru';
   config.support_links = config.support_links || {};
   config.admin_telegram_ids = Array.isArray(config.admin_telegram_ids) ? config.admin_telegram_ids : [];
