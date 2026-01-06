@@ -29,6 +29,8 @@ const DEFAULT_PRICE_IDS = {
 };
 
 const DEFAULT_STABLE_USD = new Set(['USDT', 'USDC']);
+const LIMITED_INVOICE_ASSETS = new Set(['USDT', 'USDC']);
+const LIMITED_INVOICE_DECIMALS = 4;
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const RPC_COOLDOWN_MS = 15000;
 const RPC_BLOCK_CACHE_MS = 5000;
@@ -78,7 +80,10 @@ function normalizeAssets(rawAssets = []) {
             const invoiceDecimalsRaw = Number.isFinite(Number(network.invoice_decimals))
               ? Number(network.invoice_decimals)
               : decimals;
-            const invoiceDecimals = Math.min(invoiceDecimalsRaw, networkDecimals);
+            let invoiceDecimals = Math.min(invoiceDecimalsRaw, networkDecimals);
+            if (LIMITED_INVOICE_ASSETS.has(code)) {
+              invoiceDecimals = Math.min(invoiceDecimals, LIMITED_INVOICE_DECIMALS);
+            }
             return {
               code: networkCode,
               type,

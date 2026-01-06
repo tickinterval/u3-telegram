@@ -69,7 +69,13 @@ const {
   createOrder,
 } = state;
 const messenger = createMessenger({ bot, getUser, updateUser });
-const { sendOrEditMessage, sendMessageOnly } = messenger;
+const {
+  deleteMessage,
+  sendOrEditMessage,
+  sendMessageOnly,
+  sendOrEditPhoto,
+  sendPhotoOnly,
+} = messenger;
 const views = createViews({
   config,
   products: config.products,
@@ -116,6 +122,8 @@ const walletFlow = createWalletFlow({
   getEvmBlockNumber,
   sendOrEditMessage,
   sendMessageOnly,
+  sendOrEditPhoto,
+  deleteMessage,
   updateOrder,
   createOrder,
   hasAvailableKey,

@@ -1,3 +1,5 @@
+const QRCode = require('qrcode');
+
 function createWalletFlow({
   config,
   t,
@@ -12,6 +14,8 @@ function createWalletFlow({
   getEvmBlockNumber,
   sendOrEditMessage,
   sendMessageOnly,
+  sendOrEditPhoto,
+  deleteMessage,
   updateOrder,
   createOrder,
   hasAvailableKey,
@@ -33,6 +37,78 @@ function createWalletFlow({
     }
   };
 
+  async function clearWalletInvoiceMessages(chatId, userId) {
+    if (!deleteMessage) {
+      return;
+    }
+    const store = await readStore();
+    const orders = Object.values(store.orders || {});
+    for (const order of orders) {
+      if (String(order.user_id) !== String(userId)) {
+        continue;
+      }
+      if (order.payment_provider !== 'wallet' || !order.payment) {
+        continue;
+      }
+      const messageId = order.payment.message_id;
+      if (!messageId) {
+        continue;
+      }
+      await deleteMessage(chatId, messageId);
+      const updatedPayment = {
+        ...order.payment,
+        message_id: null,
+        message_is_photo: false,
+        last_expires_min: null,
+      };
+      await updateOrder(order.id, { payment: updatedPayment });
+    }
+  }
+
+  async function sendWalletInvoiceMessage({
+    chatId,
+    userId,
+    lang,
+    asset,
+    network,
+    payment,
+    keyboard,
+    preferredMessageId,
+  }) {
+    const messageInfo = buildWalletInvoiceMessage(lang, asset, network, payment);
+    const captionOptions = {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    };
+    if (sendOrEditPhoto && network && network.address) {
+      try {
+        const buffer = await QRCode.toBuffer(String(network.address), {
+          type: 'png',
+          width: 320,
+          margin: 1,
+        });
+        const sent = await sendOrEditPhoto(
+          chatId,
+          userId,
+          buffer,
+          messageInfo.text,
+          captionOptions,
+          preferredMessageId,
+        );
+        if (sent && sent.message_id) {
+          return { messageInfo, sent, messageIsPhoto: true };
+        }
+      } catch (err) {
+        logWallet('qr inline error', err && err.message ? err.message : err);
+      }
+    }
+    const sent = await sendOrEditMessage(chatId, userId, messageInfo.text, {
+      ...captionOptions,
+      disable_web_page_preview: true,
+    }, preferredMessageId);
+    return { messageInfo, sent, messageIsPhoto: false };
+  }
+
   function buildWalletInvoiceMessage(lang, asset, network, payment) {
     const amountAtomic = payment.invoice_amount_atomic || payment.amount_atomic;
     const decimals = Number.isFinite(Number(payment.invoice_decimals))
@@ -46,17 +122,20 @@ function createWalletFlow({
       : null;
     const expiresText = expiresInMinutes !== null ? `${expiresInMinutes} min` : '';
 
+    const note = t(lang, 'payment_note');
     const lines = [
       `${t(lang, 'wallet_coin_label')}: *${asset.code}*`,
       `${t(lang, 'wallet_network_label')}: *${network.code}*`,
       '',
       `${t(lang, 'wallet_address_label')}: \`${network.address}\``,
-      `${t(lang, 'wallet_amount_label')}: \`${amountText} ${asset.code}\``,
+      `${t(lang, 'wallet_amount_label')}: \`${amountText}\``,
       `${t(lang, 'wallet_expires_label')}: ${expiresText}`,
       '',
       `_${t(lang, 'wallet_exact_amount')}_`,
-      t(lang, 'payment_note'),
     ];
+    if (note) {
+      lines.push(note);
+    }
 
     return { text: lines.join('\n'), expiresInMinutes };
   }
@@ -119,6 +198,7 @@ function createWalletFlow({
       await sendOrEditMessage(chatId, userId, t(lang, 'payment_error'));
       return;
     }
+    await clearWalletInvoiceMessages(chatId, userId);
 
     const rows = [];
     for (let i = 0; i < assets.length; i += 2) {
@@ -149,6 +229,7 @@ function createWalletFlow({
       await sendOrEditMessage(chatId, userId, t(lang, 'payment_error'));
       return;
     }
+    await clearWalletInvoiceMessages(chatId, userId);
     const rows = [];
     for (let i = 0; i < asset.networks.length; i += 2) {
       const row = [];
@@ -197,6 +278,19 @@ function createWalletFlow({
       await sendOrEditMessage(chatId, userId, t(lang, 'payment_error'), backKeyboard);
       return;
     }
+    await clearWalletInvoiceMessages(chatId, userId);
+    const currentUser = await getUser(userId);
+    const preferredMessageId = currentUser && currentUser.last_message_id
+      ? currentUser.last_message_id
+      : null;
+    const networkDecimals = Number.isFinite(Number(network.decimals))
+      ? Number(network.decimals)
+      : asset.decimals;
+    const invoiceDecimalsRaw = Number.isFinite(Number(network.invoice_decimals))
+      ? Number(network.invoice_decimals)
+      : networkDecimals;
+    const invoiceDecimals = Math.min(invoiceDecimalsRaw, networkDecimals);
+    const limitedInvoiceDecimals = asset.code === 'USDT' || asset.code === 'USDC' ? 4 : null;
     const keyboard = {
       inline_keyboard: [
         [{ text: t(lang, 'back_button'), callback_data: `wallet:coin:${asset.code}:${product.code}:${duration.days}` }],
@@ -204,7 +298,7 @@ function createWalletFlow({
     };
     const store = await readStore();
     const now = Date.now();
-    const existing = Object.values(store.orders || {})
+    let existing = Object.values(store.orders || {})
       .filter((order) => (
         String(order.user_id) === String(userId)
         && order.product_code === product.code
@@ -217,20 +311,45 @@ function createWalletFlow({
       ))
       .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0))[0];
 
+    if (existing && limitedInvoiceDecimals) {
+      const existingDecimals = Number.isFinite(Number(existing.payment.invoice_decimals))
+        ? Number(existing.payment.invoice_decimals)
+        : invoiceDecimals;
+      if (existingDecimals > limitedInvoiceDecimals) {
+        await updateOrder(existing.id, { status: 'EXPIRED' });
+        existing = null;
+      }
+    }
+
     if (existing && existing.payment && existing.payment.expires_at) {
       const expiresAt = Date.parse(existing.payment.expires_at);
       if (Number.isFinite(expiresAt) && expiresAt > now) {
         logWallet('reuse invoice', existing.id, asset.code, network.code, 'expires', existing.payment.expires_at);
-        const messageInfo = buildWalletInvoiceMessage(lang, asset, network, existing.payment);
-        const sent = await sendOrEditMessage(chatId, userId, messageInfo.text, {
-          reply_markup: keyboard,
-          disable_web_page_preview: true,
-          parse_mode: 'Markdown',
-        }, existing.payment.message_id || null);
-        if (sent && sent.message_id) {
+        const previousMessageId = existing.payment.message_id;
+        const invoice = await sendWalletInvoiceMessage({
+          chatId,
+          userId,
+          lang,
+          asset,
+          network,
+          payment: existing.payment,
+          keyboard,
+          preferredMessageId: preferredMessageId || existing.payment.message_id || null,
+        });
+        let payment = existing.payment;
+        if (invoice.sent && invoice.sent.message_id) {
+          payment = {
+            ...existing.payment,
+            message_id: invoice.sent.message_id,
+            last_expires_min: invoice.messageInfo.expiresInMinutes,
+            message_is_photo: invoice.messageIsPhoto,
+          };
           await updateOrder(existing.id, {
-            payment: { ...existing.payment, message_id: sent.message_id, last_expires_min: messageInfo.expiresInMinutes },
+            payment,
           });
+          if (deleteMessage && previousMessageId && previousMessageId !== invoice.sent.message_id) {
+            await deleteMessage(chatId, previousMessageId);
+          }
         }
         return;
       }
@@ -238,14 +357,6 @@ function createWalletFlow({
         await updateOrder(existing.id, { status: 'EXPIRED' });
       }
     }
-    const networkDecimals = Number.isFinite(Number(network.decimals))
-      ? Number(network.decimals)
-      : asset.decimals;
-    const invoiceDecimalsRaw = Number.isFinite(Number(network.invoice_decimals))
-      ? Number(network.invoice_decimals)
-      : networkDecimals;
-    const invoiceDecimals = Math.min(invoiceDecimalsRaw, networkDecimals);
-
     await sendOrEditMessage(chatId, userId, t(lang, 'creating_payment'));
 
     const order = await createOrder(userId, product, duration, amount);
@@ -322,23 +433,22 @@ function createWalletFlow({
         amountAtomic.toString(),
       );
 
-      const messageInfo = buildWalletInvoiceMessage(
+      const paymentBase = (updatedOrder && updatedOrder.payment) ? updatedOrder.payment : {};
+      const invoice = await sendWalletInvoiceMessage({
+        chatId,
+        userId,
         lang,
         asset,
         network,
-        (updatedOrder && updatedOrder.payment) ? updatedOrder.payment : {},
-      );
-      const sent = await sendOrEditMessage(chatId, userId, messageInfo.text, {
-        reply_markup: keyboard,
-        disable_web_page_preview: true,
-        parse_mode: 'Markdown',
+        payment: paymentBase,
+        keyboard,
+        preferredMessageId,
       });
-      if (sent && sent.message_id) {
-        const payment = (updatedOrder && updatedOrder.payment)
-          ? { ...updatedOrder.payment }
-          : {};
-        payment.message_id = sent.message_id;
-        payment.last_expires_min = messageInfo.expiresInMinutes;
+      const payment = { ...paymentBase };
+      if (invoice.sent && invoice.sent.message_id) {
+        payment.message_id = invoice.sent.message_id;
+        payment.last_expires_min = invoice.messageInfo.expiresInMinutes;
+        payment.message_is_photo = invoice.messageIsPhoto;
         await updateOrder(order.id, { payment });
       }
     } catch (err) {
@@ -541,20 +651,33 @@ function createWalletFlow({
             },
           };
           if (payment.message_id) {
-            await sendOrEditMessage(
-              order.user_id,
-              order.user_id,
-              t(lang, 'wallet_invoice_expired'),
-              expiredOptions,
-              payment.message_id,
-            );
-          } else {
-            await sendMessageOnly(
-              order.user_id,
-              order.user_id,
-              t(lang, 'wallet_invoice_expired'),
-              expiredOptions,
-            );
+            if (payment.message_is_photo && sendOrEditPhoto) {
+              const sent = await sendOrEditPhoto(
+                order.user_id,
+                order.user_id,
+                null,
+                t(lang, 'wallet_invoice_expired'),
+                expiredOptions,
+                payment.message_id,
+              );
+              if (!sent) {
+                await sendOrEditMessage(
+                  order.user_id,
+                  order.user_id,
+                  t(lang, 'wallet_invoice_expired'),
+                  expiredOptions,
+                  payment.message_id,
+                );
+              }
+            } else {
+              await sendOrEditMessage(
+                order.user_id,
+                order.user_id,
+                t(lang, 'wallet_invoice_expired'),
+                expiredOptions,
+                payment.message_id,
+              );
+            }
           }
           continue;
         }
@@ -581,16 +704,38 @@ function createWalletFlow({
                 inline_keyboard: [[{ text: t(lang, 'back_button'), callback_data: backData }]],
               },
             };
-            await sendOrEditMessage(
-              order.user_id,
-              order.user_id,
-              messageInfo.text,
-              options,
-              payment.message_id,
-            );
-            await updateOrder(order.id, {
-              payment: { ...payment, last_expires_min: messageInfo.expiresInMinutes },
-            });
+            const updatedPayment = { ...payment, last_expires_min: messageInfo.expiresInMinutes };
+            if (payment.message_is_photo && sendOrEditPhoto) {
+              const buffer = await QRCode.toBuffer(String(network.address), {
+                type: 'png',
+                width: 320,
+                margin: 1,
+              });
+              const sent = await sendOrEditPhoto(
+                order.user_id,
+                order.user_id,
+                buffer,
+                messageInfo.text,
+                options,
+                payment.message_id,
+              );
+              if (sent && sent.message_id) {
+                updatedPayment.message_id = sent.message_id;
+                updatedPayment.message_is_photo = true;
+              }
+            } else {
+              const sent = await sendOrEditMessage(
+                order.user_id,
+                order.user_id,
+                messageInfo.text,
+                options,
+                payment.message_id,
+              );
+              if (sent && sent.message_id) {
+                updatedPayment.message_id = sent.message_id;
+              }
+            }
+            await updateOrder(order.id, { payment: updatedPayment });
           }
         }
 
